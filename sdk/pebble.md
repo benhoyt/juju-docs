@@ -18,6 +18,8 @@ In the context of Juju sidecar charms, Pebble is run with the `--hold` argument,
 
 <h3 id="heading--autostart">Autostart</h3>
 
+TODO: rework "autostart" section to use "replan"
+
 To start all the services that are marked as `startup: enabled` in the configuration plan, call [`Container.autostart`](https://ops.readthedocs.io/en/latest/#ops.model.Container.autostart). For example (taken from the [snappass-test](https://github.com/benhoyt/snappass-test/blob/master/src/charm.py) charm):
 
 ```python
@@ -108,6 +110,11 @@ container.send_signal('SIGHUP', 'nginx', 'redis')
 ```
 
 This will raise an `APIError` if any of the services are not in the plan or are not currently running.
+
+<h3 id="heading--service-logs">Service logs</h3>
+
+TODO: add new section about service logs, how Juju runs in `--verbose`, etc
+
 
 <h2 id="heading--configuration">Pebble layer configuration</h2>
 
