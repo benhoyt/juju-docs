@@ -99,6 +99,15 @@ class MyCharm(CharmBase):
                 container.start('mysql')
 ```
 
+<h3 id="heading--sending-signals">Sending signals to services</h3>
+
+From Juju version 2.9.22, you can use the [`Container.send_signal`](https://ops.readthedocs.io/en/latest/#ops.model.Container.send_signal) method to send a signal to one or more services. For example, to send `SIGHUP` to the hypothetical "nginx" and "redis" services:
+
+```python
+container.send_signal('SIGHUP', 'nginx', 'redis')
+```
+
+This will raise an `APIError` if any of the services are not in the plan or are not currently running.
 
 <h2 id="heading--configuration">Pebble layer configuration</h2>
 
@@ -107,6 +116,8 @@ Pebble services are [configured by means of layers](https://github.com/canonical
 When a workload container is created and Pebble starts up, it looks in `/var/lib/pebble/default/layers` (if that exists) for configuration layers already present in the container image, such as `001-layer.yaml`. If there are existing layers there, that becomes the starting configuration, otherwise Pebble is happy to start with an empty configuration, meaning no services.
 
 In the latter case, Pebble is configured dynamically via the API by adding layers at runtime.
+
+See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details.
 
 <h3 id="heading--add-layer">Add a configuration layer</h3>
 
