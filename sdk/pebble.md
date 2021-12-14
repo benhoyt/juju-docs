@@ -132,6 +132,111 @@ class MyCharm(CharmBase):
         ...
 ```
 
+<h2 id="heading--service-auto-restart">Service auto-restart</h2>
+
+From Juju version 2.9.22, Pebble automatically restarts services when they exit unexpectedly.
+
+By default, Pebble will automatically restart a service when it exits (with either a zero or nonzero exit code). In addition, Pebble implements an exponential backoff delay and a small random jitter time between restarts.
+
+You can configure this behavior in the layer configuration, specified under each service. Here is an example showing the complete list of auto-restart options with their defaults:
+
+```yaml
+services:
+    server:
+        override: replace
+        command: python3 app.py
+
+        # auto-restart options (showing defaults)
+        on-success: restart   # can also be "halt" or "ignore"
+        on-failure: restart   # can also be "halt" or "ignore"
+        backoff-delay: 500ms
+        backoff-factor: 2.0
+        backoff-limit: 30s
+```
+
+The `on-success` action is performed if the service exits with a zero exit code, and the `on-failure` action is performed if it exits with a nonzero code. The actions are defined as follows:
+
+* `restart`: automatically restart the service after the current backoff delay. This is the default.
+* `halt`: terminate the Pebble server. Because Pebble is the container's "PID 1" process, this will cause the container to terminate -- useful if you want Kubernetes to restart the container.
+* `ignore`: do nothing (apart from logging the failure).
+
+The backoff delay between restarts is calculated using an exponential backoff: `next = current * backoff_factor`, with `current` starting at the configured `backoff-delay`. If `next` is greater than `backoff-limit`, it is capped at `backoff-limit`. With the defaults, the delays (in seconds) will be: 0.5, 1, 2, 4, 8, 16, 30, 30, and so on.
+
+The `backoff-factor` must be greater than or equal to 1.0. If the factor is set to 1.0, `next` will equal `current`, so the delay will remain constant.
+
+Just before delaying, a small random time jitter of 0-10% of the delay is added (the current delay is not updated). For example, if the current delay value is 2 seconds, the actual delay will be between 2.0 and 2.2 seconds.
+
+A charm can find the total number of times Pebble has restarted a service using the `restarts` field in the [`ServiceInfo`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo) object returned by the [`Container.get_service`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_service) method.
+
+
+<h2 id="heading--health-checks">Health checks</h2>
+
+From Juju version TODO:TBD, Pebble supports adding custom health checks: first, to allow Pebble itself to restart services when certain checks fail, and second, to allow Kubernetes to restart containers when specified checks fail.
+
+Each check can be one of three types. The types and their success criteria are:
+
+* `http`: an HTTP `GET` request to the URL specified must return an HTTP 2xx status code.
+* `tcp`: opening the given TCP port must be successful.
+* `exec`: executing the specified command must yield a zero exit code.
+
+<h3 id="heading--check-configuration">Check configuration</h3>
+
+Checks are configured in the layer configuration using the top-level field `checks`. Here's an example showing the three different types of checks:
+
+```yaml
+checks:
+    up:
+        override: replace
+        level: alive  # optional, but required for liveness/readiness probes
+        period: 10s   # this is the default
+        timeout: 3s   # this is the default
+        failures: 3   # this is the default
+        exec:
+            command: service nginx status
+
+    online:
+        override: replace
+        level: ready
+        tcp:
+            port: 8080
+
+    test:
+        override: replace
+        http:
+            url: http://localhost:8080/test
+```
+
+Each check is performed with the specified `period` (the default is 10 seconds apart), and is considered an error if a `timeout` happens before the check responds -- for example, before the HTTP request is complete or before the command finishes executing.
+
+A check is considered healthy until it's had `failures` errors in a row (the default is 3). At that point, the `on-check-failure` action will be triggered, and the health endpoint will return an error response (both are discussed below). When the check succeeds again, the failure count is reset.
+
+See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details about the fields and options for different types of checks.
+
+<h3 id="heading--checks-auto-restart">Checks auto-restart</h3>
+
+To enable Pebble auto-restart behavior based on a check, use the `on-check-failure` map in the service configuration. For example, to restart the "server" service when the "test" check fails, use the following configuration:
+
+```yaml
+services:
+    server:
+        override: merge
+        on-check-failure:
+            test: restart   # can also be "halt" or "ignore" (the default)
+```
+
+<h3 id="heading--health-endpoint-and-probes">Health endpoint and probes</h3>
+
+As of Juju version TODO:TBD, Pebble includes an HTTP `/v1/health` endpoint that allows a user to query the health of configured checks, optionally filtered by check level with the query string `?level=<level>` This endpoint returns an HTTP 200 status if the checks are healthy, HTTP 502 otherwise.
+
+Each check can specify a `level` of "alive" or "ready". These have semantic meaning: "alive" means the check or the service it's connected to is up and running; "ready" means it's properly accepting network traffic. These correspond to Kubernetes ["liveness" and "readiness" probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/).
+
+Ready implies alive, and not alive implies not ready. If you've configured an "alive" check but no "ready" check and the "alive" check is unhealthy, Pebble indicates that the "ready" check is unhealthy too.
+
+When Juju creates a sidecar charm container, it initializes the Kubernetes liveness and readiness probes to hit the `/v1/health` endpoint with `?level=alive` and `?level=ready` filters, respectively.
+
+If there are no checks configured, Pebble returns HTTP 200 so the liveness and readiness probes are successful by default. To use this feature, you must explicitly create checks with `level: alive` or `level: ready` in the layer configuration.
+
+
 <h2 id="heading--files-api">The Files API</h2>
 
 Pebble's files API allows charm authors to read and write files on the workload container. You can write files ("push"), read files ("pull"), list files in a directory, make directories, and delete files or directories.
