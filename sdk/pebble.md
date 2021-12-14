@@ -72,6 +72,12 @@ class MyCharm(CharmBase):
                 # handle Pebble errors
 ```
 
+It's not an error to start a service that's already started, or stop one that's already stopped. These actions are *idempotent*, meaning they can safely be performed more than once, and the service will remain in the same state.
+
+When Pebble starts a service, Pebble waits one second to ensure the process doesn't exit too quickly -- if the process exits within one second, the start operation raises an error and the service remains stopped.
+
+To stop a service, Pebble first sends `SIGTERM` to the service's process group to try to stop the service gracefully. If the process has not exited after 5 seconds, Pebble sends `SIGKILL` to the process group. If the process still doesn't exit after another 5 seconds, the stop operation raises an error. If the process exits any time before the 10 seconds have elapsed, the stop operation succeeds.
+
 <h3 id="heading--get-services">Fetch service status</h3>
 
 You can use the [`get_service`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_service) and [`get_services`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_services) methods to fetch the current status of one service or multiple services, respectively. The returned [`ServiceInfo`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo) objects provide a `status` attribute with various states, or you can use the [`ServiceInfo.is_running`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo.is_running) method.
