@@ -16,11 +16,15 @@ The main purpose of Pebble is to control and monitor services, which are usually
 
 In the context of Juju sidecar charms, Pebble is run with the `--hold` argument, which prevents it from automatically starting the services marked with `startup: enabled`. This is to give the charm full control over when the services in Pebble's configuration are actually started.
 
-<h3 id="heading--autostart">Autostart</h3>
+<h3 id="heading--replan">Replan</h3>
 
-TODO: rework "autostart" section to use "replan"
+After adding a configuration layer to the plan (details below), you need to call `replan` to make any changes to `services` take effect. When you execute replan, Pebble will automatically restart any services that have changed, respecting dependency order. If the services are already running, it will stop them first using the normal [stop sequence](#heading--start-stop).
 
-To start all the services that are marked as `startup: enabled` in the configuration plan, call [`Container.autostart`](https://ops.readthedocs.io/en/latest/#ops.model.Container.autostart). For example (taken from the [snappass-test](https://github.com/benhoyt/snappass-test/blob/master/src/charm.py) charm):
+The reason for replan is so that you as a user have control over when the (potentially high-impact) action of stopping and restarting your services takes place.
+
+Replan also starts the services that are marked as `startup: enabled` in the configuration plan, if they're not running already.
+
+Call [`Container.replan`](https://ops.readthedocs.io/en/latest/#ops.model.Container.replan) to execute the replan procedure. For example:
 
 ```python
 class SnappassTestCharm(CharmBase):
@@ -34,12 +38,12 @@ class SnappassTestCharm(CharmBase):
                     "override": "replace",
                     "summary": "snappass service",
                     "command": "snappass",
-                    "startup": "enabled",  # enables "autostart"
+                    "startup": "enabled",
                 }
             },
         }
         container.add_layer("snappass", snappass_layer, combine=True)
-        container.autostart()
+        container.replan()
         self.unit.status = ActiveStatus()
 ```
 
@@ -113,7 +117,15 @@ This will raise an `APIError` if any of the services are not in the plan or are 
 
 <h3 id="heading--service-logs">Service logs</h3>
 
-TODO: add new section about service logs, how Juju runs in `--verbose`, etc
+Pebble stores service logs (stdout and stderr from services) in a ring buffer accessible via the `pebble logs` command. Each log line is prefixed with the timestamp and service name, using the format `2021-05-03T03:55:49.654Z [snappass] ...`. Pebble allocates a ring buffer of 100KB per service (not one ring to rule them all), and overwrites the oldest logs in the buffer when it fills up.
+
+When running under Juju, the Pebble server is started with the `--verbose` flag, which means it also writes these logs to Pebble's own stdout. That in turn is accessible via Kubernetes using the `kubectl logs` command. For example, to view the logs for the "redis" container, you could run:
+
+```
+microk8s kubectl logs -n snappass snappass-test-0 -c redis
+```
+
+In the command line above, "snappass" is the namespace (Juju model name), "snappass-test-0" is the pod, and "redis" the specific container defined by the charm configuration.
 
 
 <h2 id="heading--configuration">Pebble layer configuration</h2>
@@ -130,7 +142,7 @@ See the [layer specification](https://github.com/canonical/pebble#layer-specific
 
 To add a configuration layer, call [`Container.add_layer`](https://ops.readthedocs.io/en/latest/#ops.model.Container.add_layer) with a label for the layer, and the layer's contents as a YAML string, Python dict, or [`pebble.Layer`](https://ops.readthedocs.io/en/latest/#ops.pebble.Layer) object.
 
-You can see an example of `add_layer` under the ["Autostart" heading](#heading--autostart) above. The `combine=True` argument tells Pebble to combine the named layer into an existing layer of that name (or add a layer if none by that name exists). Using `combine=True` is common when dynamically adding layers.
+You can see an example of `add_layer` under the ["Replan" heading](#heading--replan) above. The `combine=True` argument tells Pebble to combine the named layer into an existing layer of that name (or add a layer if none by that name exists). Using `combine=True` is common when dynamically adding layers.
 
 Because `combine=True` combines the layer with an existing layer of the same name, it's normally used with `override: replace` in the YAML service configuration. This means replacing the entire service configuration with the fields in the new layer.
 
