@@ -16,9 +16,15 @@ The main purpose of Pebble is to control and monitor services, which are usually
 
 In the context of Juju sidecar charms, Pebble is run with the `--hold` argument, which prevents it from automatically starting the services marked with `startup: enabled`. This is to give the charm full control over when the services in Pebble's configuration are actually started.
 
-<h3 id="heading--autostart">Autostart</h3>
+<h3 id="heading--replan">Replan</h3>
 
-To start all the services that are marked as `startup: enabled` in the configuration plan, call [`Container.autostart`](https://ops.readthedocs.io/en/latest/#ops.model.Container.autostart). For example (taken from the [snappass-test](https://github.com/benhoyt/snappass-test/blob/master/src/charm.py) charm):
+After adding a configuration layer to the plan (details below), you need to call `replan` to make any changes to `services` take effect. When you execute replan, Pebble will automatically restart any services that have changed, respecting dependency order. If the services are already running, it will stop them first using the normal [stop sequence](#heading--start-stop).
+
+The reason for replan is so that you as a user have control over when the (potentially high-impact) action of stopping and restarting your services takes place.
+
+Replan also starts the services that are marked as `startup: enabled` in the configuration plan, if they're not running already.
+
+Call [`Container.replan`](https://ops.readthedocs.io/en/latest/#ops.model.Container.replan) to execute the replan procedure. For example:
 
 ```python
 class SnappassTestCharm(CharmBase):
@@ -32,12 +38,12 @@ class SnappassTestCharm(CharmBase):
                     "override": "replace",
                     "summary": "snappass service",
                     "command": "snappass",
-                    "startup": "enabled",  # enables "autostart"
+                    "startup": "enabled",
                 }
             },
         }
         container.add_layer("snappass", snappass_layer, combine=True)
-        container.autostart()
+        container.replan()
         self.unit.status = ActiveStatus()
 ```
 
@@ -72,6 +78,12 @@ class MyCharm(CharmBase):
                 # handle Pebble errors
 ```
 
+It's not an error to start a service that's already started, or stop one that's already stopped. These actions are *idempotent*, meaning they can safely be performed more than once, and the service will remain in the same state.
+
+When Pebble starts a service, Pebble waits one second to ensure the process doesn't exit too quickly -- if the process exits within one second, the start operation raises an error and the service remains stopped.
+
+To stop a service, Pebble first sends `SIGTERM` to the service's process group to try to stop the service gracefully. If the process has not exited after 5 seconds, Pebble sends `SIGKILL` to the process group. If the process still doesn't exit after another 5 seconds, the stop operation raises an error. If the process exits any time before the 10 seconds have elapsed, the stop operation succeeds.
+
 <h3 id="heading--get-services">Fetch service status</h3>
 
 You can use the [`get_service`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_service) and [`get_services`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_services) methods to fetch the current status of one service or multiple services, respectively. The returned [`ServiceInfo`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo) objects provide a `status` attribute with various states, or you can use the [`ServiceInfo.is_running`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo.is_running) method.
@@ -93,6 +105,28 @@ class MyCharm(CharmBase):
                 container.start('mysql')
 ```
 
+<h3 id="heading--sending-signals">Sending signals to services</h3>
+
+From Juju version 2.9.22, you can use the [`Container.send_signal`](https://ops.readthedocs.io/en/latest/#ops.model.Container.send_signal) method to send a signal to one or more services. For example, to send `SIGHUP` to the hypothetical "nginx" and "redis" services:
+
+```python
+container.send_signal('SIGHUP', 'nginx', 'redis')
+```
+
+This will raise an `APIError` if any of the services are not in the plan or are not currently running.
+
+<h3 id="heading--service-logs">Service logs</h3>
+
+Pebble stores service logs (stdout and stderr from services) in a ring buffer accessible via the `pebble logs` command. Each log line is prefixed with the timestamp and service name, using the format `2021-05-03T03:55:49.654Z [snappass] ...`. Pebble allocates a ring buffer of 100KB per service (not one ring to rule them all), and overwrites the oldest logs in the buffer when it fills up.
+
+When running under Juju, the Pebble server is started with the `--verbose` flag, which means it also writes these logs to Pebble's own stdout. That in turn is accessible via Kubernetes using the `kubectl logs` command. For example, to view the logs for the "redis" container, you could run:
+
+```
+microk8s kubectl logs -n snappass snappass-test-0 -c redis
+```
+
+In the command line above, "snappass" is the namespace (Juju model name), "snappass-test-0" is the pod, and "redis" the specific container defined by the charm configuration.
+
 
 <h2 id="heading--configuration">Pebble layer configuration</h2>
 
@@ -102,11 +136,13 @@ When a workload container is created and Pebble starts up, it looks in `/var/lib
 
 In the latter case, Pebble is configured dynamically via the API by adding layers at runtime.
 
+See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details.
+
 <h3 id="heading--add-layer">Add a configuration layer</h3>
 
 To add a configuration layer, call [`Container.add_layer`](https://ops.readthedocs.io/en/latest/#ops.model.Container.add_layer) with a label for the layer, and the layer's contents as a YAML string, Python dict, or [`pebble.Layer`](https://ops.readthedocs.io/en/latest/#ops.pebble.Layer) object.
 
-You can see an example of `add_layer` under the ["Autostart" heading](#heading--autostart) above. The `combine=True` argument tells Pebble to combine the named layer into an existing layer of that name (or add a layer if none by that name exists). Using `combine=True` is common when dynamically adding layers.
+You can see an example of `add_layer` under the ["Replan" heading](#heading--replan) above. The `combine=True` argument tells Pebble to combine the named layer into an existing layer of that name (or add a layer if none by that name exists). Using `combine=True` is common when dynamically adding layers.
 
 Because `combine=True` combines the layer with an existing layer of the same name, it's normally used with `override: replace` in the YAML service configuration. This means replacing the entire service configuration with the fields in the new layer.
 
