@@ -296,9 +296,9 @@ As of Juju version TODO:TBD, Pebble includes an HTTP `/v1/health` endpoint that 
 
 Each check can specify a `level` of "alive" or "ready". These have semantic meaning: "alive" means the check or the service it's connected to is up and running; "ready" means it's properly accepting network traffic. These correspond to Kubernetes ["liveness" and "readiness" probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/).
 
-Ready implies alive, and not alive implies not ready. If you've configured an "alive" check but no "ready" check and the "alive" check is unhealthy, Pebble indicates that the "ready" check is unhealthy too.
-
 When Juju creates a sidecar charm container, it initializes the Kubernetes liveness and readiness probes to hit the `/v1/health` endpoint with `?level=alive` and `?level=ready` filters, respectively.
+
+Ready implies alive, and not alive implies not ready. If you've configured an "alive" check but no "ready" check, and the "alive" check is unhealthy, `/v1/health?level=ready` will report unhealthy as well, and the Kubernetes readiness probe will act on that.
 
 If there are no checks configured, Pebble returns HTTP 200 so the liveness and readiness probes are successful by default. To use this feature, you must explicitly create checks with `level: alive` or `level: ready` in the layer configuration.
 
