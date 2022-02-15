@@ -215,8 +215,8 @@ services:
         command: python3 app.py
 
         # auto-restart options (showing defaults)
-        on-success: restart   # can also be "halt" or "ignore"
-        on-failure: restart   # can also be "halt" or "ignore"
+        on-success: restart   # can also be "shutdown" or "ignore"
+        on-failure: restart   # can also be "shutdown" or "ignore"
         backoff-delay: 500ms
         backoff-factor: 2.0
         backoff-limit: 30s
@@ -225,7 +225,7 @@ services:
 The `on-success` action is performed if the service exits with a zero exit code, and the `on-failure` action is performed if it exits with a nonzero code. The actions are defined as follows:
 
 * `restart`: automatically restart the service after the current backoff delay. This is the default.
-* `halt`: terminate the Pebble server. Because Pebble is the container's "PID 1" process, this will cause the container to terminate -- useful if you want Kubernetes to restart the container.
+* `shutdown`: shut down the Pebble server. Because Pebble is the container's "PID 1" process, this will cause the container to terminate -- useful if you want Kubernetes to restart the container.
 * `ignore`: do nothing (apart from logging the failure).
 
 The backoff delay between restarts is calculated using an exponential backoff: `next = current * backoff_factor`, with `current` starting at the configured `backoff-delay`. If `next` is greater than `backoff-limit`, it is capped at `backoff-limit`. With the defaults, the delays (in seconds) will be: 0.5, 1, 2, 4, 8, 16, 30, 30, and so on.
@@ -289,7 +289,7 @@ services:
     server:
         override: merge
         on-check-failure:
-            test: restart   # can also be "halt" or "ignore" (the default)
+            test: restart   # can also be "shutdown" or "ignore" (the default)
 ```
 
 <h3 id="heading--health-endpoint-and-probes">Health endpoint and probes</h3>
