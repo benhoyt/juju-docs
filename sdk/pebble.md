@@ -256,7 +256,7 @@ checks:
         level: alive  # optional, but required for liveness/readiness probes
         period: 10s   # this is the default
         timeout: 3s   # this is the default
-        failures: 3   # this is the default
+        threshold: 3  # this is the default
         exec:
             command: service nginx status
 
@@ -274,7 +274,7 @@ checks:
 
 Each check is performed with the specified `period` (the default is 10 seconds apart), and is considered an error if a `timeout` happens before the check responds -- for example, before the HTTP request is complete or before the command finishes executing.
 
-A check is considered healthy until it's had `failures` errors in a row (the default is 3). At that point, the `on-check-failure` action will be triggered, and the health endpoint will return an error response (both are discussed below). When the check succeeds again, the failure count is reset.
+A check is considered healthy until it's had `threshold` errors in a row (the default is 3). At that point, the `on-check-failure` action will be triggered, and the health endpoint will return an error response (both are discussed below). When the check succeeds again, the failure count is reset.
 
 See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details about the fields and options for different types of checks.
 
