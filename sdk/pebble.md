@@ -20,6 +20,11 @@ The rest of this document provides details of how a charm interacts with the wor
     - [Fetch service status](#heading--fetch-service-status)
     - [Send signals to services](#heading--send-signals-to-services)
     - [View service logs](#heading--view-service-logs)
+- [Service auto-restart](#heading--service-auto-restart)
+- [Health checks](#heading--health-checks)
+    - [Check configuration](#heading--check-configuration)
+    - [Checks auto-restart](#heading--checks-auto-restart)
+    - [Health endpoint and probes](#heading--health-endpoint-and-probes)
 - [The files API](#heading--the-files-api)
     - [Push](#heading--push)
     - [Pull](#heading--pull)
@@ -235,7 +240,7 @@ The `backoff-factor` must be greater than or equal to 1.0. If the factor is set 
 Just before delaying, a small random time jitter of 0-10% of the delay is added (the current delay is not updated). For example, if the current delay value is 2 seconds, the actual delay will be between 2.0 and 2.2 seconds.
 
 
-<h2 id="heading--health-checks">Health checks</h2>
+<a href="#heading--health-checks"><h2 id="heading--health-checks">Health checks</h2></a>
 
 From Juju version TODO:TBD, Pebble supports adding custom health checks: first, to allow Pebble itself to restart services when certain checks fail, and second, to allow Kubernetes to restart containers when specified checks fail.
 
@@ -245,7 +250,7 @@ Each check can be one of three types. The types and their success criteria are:
 * `tcp`: opening the given TCP port must be successful.
 * `exec`: executing the specified command must yield a zero exit code.
 
-<h3 id="heading--check-configuration">Check configuration</h3>
+<a href="#heading--check-configuration"><h3 id="heading--check-configuration">Check configuration</h3></a>
 
 Checks are configured in the layer configuration using the top-level field `checks`. Here's an example showing the three different types of checks:
 
@@ -278,7 +283,7 @@ A check is considered healthy until it's had `threshold` errors in a row (the de
 
 See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details about the fields and options for different types of checks.
 
-<h3 id="heading--checks-auto-restart">Checks auto-restart</h3>
+<a href="#heading--checks-auto-restart"><h3 id="heading--checks-auto-restart">Checks auto-restart</h3></a>
 
 To enable Pebble auto-restart behavior based on a check, use the `on-check-failure` map in the service configuration. For example, to restart the "server" service when the "test" check fails, use the following configuration:
 
@@ -290,7 +295,7 @@ services:
             test: restart   # can also be "shutdown" or "ignore" (the default)
 ```
 
-<h3 id="heading--health-endpoint-and-probes">Health endpoint and probes</h3>
+<a href="#heading--health-endpoint-and-probes"><h3 id="heading--health-endpoint-and-probes">Health endpoint and probes</h3></a>
 
 As of Juju version TODO:TBD, Pebble includes an HTTP `/v1/health` endpoint that allows a user to query the health of configured checks, optionally filtered by check level with the query string `?level=<level>` This endpoint returns an HTTP 200 status if the checks are healthy, HTTP 502 otherwise.
 
