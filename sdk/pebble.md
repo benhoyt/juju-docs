@@ -1,5 +1,3 @@
-<div data-theme-toc="true"> </div>
-
 As mentioned in the [introduction](https://juju.is/docs/sdk), the recommended way to create charms for Kubernetes is using the sidecar pattern with the workload container running [Pebble](https://github.com/canonical/pebble).
 
 Pebble is a lightweight, API-driven process supervisor designed for use with charms. If you specify the `containers` field in a charm's `metadata.yaml`, Juju will deploy the charm code in a sidecar container, with Pebble running as the workload container's `ENTRYPOINT`.
@@ -10,15 +8,91 @@ The `Container` class has methods to modify the Pebble configuration "plan", sta
 
 The rest of this document provides details of how a charm interacts with the workload container via Pebble, using the Python Operator Framework [`Container`](https://ops.readthedocs.io/en/latest/#ops.model.Container) methods.
 
-<h2 id="heading--service-management">Service management and status</h2>
+**Contents:**
+
+- [Configure the Pebble layer](#heading--configure-the-pebble-layer)
+    - [Add a configuration layer](#heading--add-a-configuration-layer)
+    - [Fetch the effective plan](#heading--fetch-the-effective-plan)
+- [Control and monitor services](#heading--control-and-monitor-services)
+    - [Replan](#heading--replan)
+    - [Check container health](#heading--check-container-health)
+    - [Start and stop](#heading--start-and-stop)
+    - [Fetch service status](#heading--fetch-service-status)
+    - [Send signals to services](#heading--send-signals-to-services)
+    - [View service logs](#heading--view-service-logs)
+- [The files API](#heading--the-files-api)
+    - [Push](#heading--push)
+    - [Pull](#heading--pull)
+    - [List files](#heading--list-files)
+    - [Create directory](#heading--create-directory)
+    - [Remove path](#heading--remove-path)
+- [Run commands](#heading--run-commands)
+    - [Handle errors](#heading--handle-errors)
+    - [Use command options](#heading--use-command-options)
+    - [Use input/output options](#heading--use-inputoutput-options)
+    - [Send signals to a running command](#heading--send-signals-to-a-running-command)
+- [Access the Pebble client directly](#heading--access-the-pebble-client-directly)
+
+
+ <a href="#heading--configure-the-pebble-layer"><h2 id="heading--configure-the-pebble-layer">Configure the Pebble layer</h2></a>
+
+
+Pebble services are [configured by means of layers](https://github.com/canonical/pebble#layer-configuration), with higher layers adding to or overriding lower layers, forming the effective Pebble configuration, or "plan".
+
+When a workload container is created and Pebble starts up, it looks in `/var/lib/pebble/default/layers` (if that exists) for configuration layers already present in the container image, such as `001-layer.yaml`. If there are existing layers there, that becomes the starting configuration, otherwise Pebble is happy to start with an empty configuration, meaning no services.
+
+In the latter case, Pebble is configured dynamically via the API by adding layers at runtime.
+
+See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details.
+
+ <a href="#heading--add-a-configuration-layer"><h3 id="heading--add-a-configuration-layer">Add a configuration layer</h3></a>
+
+To add a configuration layer, call [`Container.add_layer`](https://ops.readthedocs.io/en/latest/#ops.model.Container.add_layer) with a label for the layer, and the layer's contents as a YAML string, Python dict, or [`pebble.Layer`](https://ops.readthedocs.io/en/latest/#ops.pebble.Layer) object.
+
+You can see an example of `add_layer` under the ["Replan" heading](#heading--replan). The `combine=True` argument tells Pebble to combine the named layer into an existing layer of that name (or add a layer if none by that name exists). Using `combine=True` is common when dynamically adding layers.
+
+Because `combine=True` combines the layer with an existing layer of the same name, it's normally used with `override: replace` in the YAML service configuration. This means replacing the entire service configuration with the fields in the new layer.
+
+If you're adding a single layer *without* `combine=True` on top of an existing base layer, you may want to use `override: merge` in the service configuration. This will merge the fields specified with the service by that name in the base layer. [See an example of overriding a layer.](https://github.com/canonical/pebble#layer-override-example)
+
+ <a href="#heading--fetch-the-effective-plan"><h3 id="heading--fetch-the-effective-plan">Fetch the effective plan</h3></a>
+
+
+Charm authors can also introspect the current plan using [`Container.get_plan`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_plan). It returns a [`pebble.Plan`](https://ops.readthedocs.io/en/latest/#ops.pebble.Plan) object whose `services` attribute maps service names to [`pebble.Service`](https://ops.readthedocs.io/en/latest/#ops.pebble.Service) instances.
+
+Below is an example of how you might use `get_plan` to introspect the current configuration, and only add the layer with its services if they haven't been added already:
+
+```python
+class MyCharm(CharmBase):
+    ...
+
+    def _on_config_changed(self, event):
+        container = self.unit.get_container("main")
+        plan = container.get_plan()
+        if not plan.services:
+            layer = {"services": ...}
+            container.add_layer("layer", layer)
+            container.start("svc")
+        ...
+```
+
+
+<a href="#heading--control-and-monitor-services"><h2 id="heading--control-and-monitor-services">Control and monitor services</h2></a> 
+ 
 
 The main purpose of Pebble is to control and monitor services, which are usually long-running processes like web servers and databases.
 
 In the context of Juju sidecar charms, Pebble is run with the `--hold` argument, which prevents it from automatically starting the services marked with `startup: enabled`. This is to give the charm full control over when the services in Pebble's configuration are actually started.
 
-<h3 id="heading--autostart">Autostart</h3>
+ <a href="#heading--replan"><h3 id="heading--replan">Replan</h3></a>
 
-To start all the services that are marked as `startup: enabled` in the configuration plan, call [`Container.autostart`](https://ops.readthedocs.io/en/latest/#ops.model.Container.autostart). For example (taken from the [snappass-test](https://github.com/benhoyt/snappass-test/blob/master/src/charm.py) charm):
+After adding a configuration layer to the plan (details below), you need to call `replan` to make any changes to `services` take effect. When you execute replan, Pebble will automatically restart any services that have changed, respecting dependency order. If the services are already running, it will stop them first using the normal [stop sequence](#heading--start-stop).
+
+The reason for replan is so that you as a user have control over when the (potentially high-impact) action of stopping and restarting your services takes place.
+
+Replan also starts the services that are marked as `startup: enabled` in the configuration plan, if they're not running already.
+
+Call [`Container.replan`](https://ops.readthedocs.io/en/latest/#ops.model.Container.replan) to execute the replan procedure. For example:
 
 ```python
 class SnappassTestCharm(CharmBase):
@@ -32,16 +106,17 @@ class SnappassTestCharm(CharmBase):
                     "override": "replace",
                     "summary": "snappass service",
                     "command": "snappass",
-                    "startup": "enabled",  # enables "autostart"
+                    "startup": "enabled",
                 }
             },
         }
         container.add_layer("snappass", snappass_layer, combine=True)
-        container.autostart()
+        container.replan()
         self.unit.status = ActiveStatus()
 ```
 
-<h3 id="heading--check-container-health">Checking Container Health</h3>
+ <a href="#heading--check-container-health"><h3 id="heading--check-container-health">Check container health</h3></a>
+
 
 The Charmed Operator Framework provides a way to ensure that your container is healthy. In the [Container](https://ops.readthedocs.io/en/latest/#ops.model.Container) class, `Container.can_connect()` can be used in a conditional statement as a guard around your code to ensure that Pebble is operational.
 
@@ -49,7 +124,8 @@ This provides a convenient pattern for ensuring that Pebble is ready, and obviat
 
 `Container.can_connect()` will catch and log `pebble.ConnectionError`, `pebble.APIError`, and `FileNotFoundError` (in case the Pebble socket has disappeared as part of Charm removal). Other Pebble errors or exceptions should be handled as normal.
 
-<h3 id="heading--start-stop">Start and stop</h3>
+ <a href="#heading--start-and-stop"><h3 id="heading--start-and-stop">Start and stop</h3></a>
+
 
 To start (or stop) one or more services by name, use the [`start`](https://ops.readthedocs.io/en/latest/#ops.model.Container.start) and [`stop`](https://ops.readthedocs.io/en/latest/#ops.model.Container.stop) methods. Here's an example of how you might stop and start a database service during a backup action:
 
@@ -72,7 +148,13 @@ class MyCharm(CharmBase):
                 # handle Pebble errors
 ```
 
-<h3 id="heading--get-services">Fetch service status</h3>
+It's not an error to start a service that's already started, or stop one that's already stopped. These actions are *idempotent*, meaning they can safely be performed more than once, and the service will remain in the same state.
+
+When Pebble starts a service, Pebble waits one second to ensure the process doesn't exit too quickly -- if the process exits within one second, the start operation raises an error and the service remains stopped.
+
+To stop a service, Pebble first sends `SIGTERM` to the service's process group to try to stop the service gracefully. If the process has not exited after 5 seconds, Pebble sends `SIGKILL` to the process group. If the process still doesn't exit after another 5 seconds, the stop operation raises an error. If the process exits any time before the 10 seconds have elapsed, the stop operation succeeds.
+
+ <a href="#heading--fetch-service-status"><h3 id="heading--fetch-service-status">Fetch service status</h3></a>
 
 You can use the [`get_service`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_service) and [`get_services`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_services) methods to fetch the current status of one service or multiple services, respectively. The returned [`ServiceInfo`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo) objects provide a `status` attribute with various states, or you can use the [`ServiceInfo.is_running`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo.is_running) method.
 
@@ -93,44 +175,30 @@ class MyCharm(CharmBase):
                 container.start('mysql')
 ```
 
+ <a href="#heading--send-signals-to-services"><h3 id="heading--send-signals-to-services">Send signals to services</h3></a>
 
-<h2 id="heading--configuration">Pebble layer configuration</h2>
 
-Pebble services are [configured by means of layers](https://github.com/canonical/pebble#layer-configuration), with higher layers adding to or overriding lower layers, forming the effective Pebble configuration, or "plan".
-
-When a workload container is created and Pebble starts up, it looks in `/var/lib/pebble/default/layers` (if that exists) for configuration layers already present in the container image, such as `001-layer.yaml`. If there are existing layers there, that becomes the starting configuration, otherwise Pebble is happy to start with an empty configuration, meaning no services.
-
-In the latter case, Pebble is configured dynamically via the API by adding layers at runtime.
-
-<h3 id="heading--add-layer">Add a configuration layer</h3>
-
-To add a configuration layer, call [`Container.add_layer`](https://ops.readthedocs.io/en/latest/#ops.model.Container.add_layer) with a label for the layer, and the layer's contents as a YAML string, Python dict, or [`pebble.Layer`](https://ops.readthedocs.io/en/latest/#ops.pebble.Layer) object.
-
-You can see an example of `add_layer` under the ["Autostart" heading](#heading--autostart) above. The `combine=True` argument tells Pebble to combine the named layer into an existing layer of that name (or add a layer if none by that name exists). Using `combine=True` is common when dynamically adding layers.
-
-Because `combine=True` combines the layer with an existing layer of the same name, it's normally used with `override: replace` in the YAML service configuration. This means replacing the entire service configuration with the fields in the new layer.
-
-If you're adding a single layer *without* `combine=True` on top of an existing base layer, you may want to use `override: merge` in the service configuration. This will merge the fields specified with the service by that name in the base layer. [See an example of overriding a layer.](https://github.com/canonical/pebble#layer-override-example)
-
-<h3 id="heading--get-plan">Fetch effective "plan"</h3>
-
-Charm authors can also introspect the current plan using [`Container.get_plan`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_plan). It returns a [`pebble.Plan`](https://ops.readthedocs.io/en/latest/#ops.pebble.Plan) object whose `services` attribute maps service names to [`pebble.Service`](https://ops.readthedocs.io/en/latest/#ops.pebble.Service) instances.
-
-Below is an example of how you might use `get_plan` to introspect the current configuration, and only add the layer with its services if they haven't been added already:
+From Juju version 2.9.22, you can use the [`Container.send_signal`](https://ops.readthedocs.io/en/latest/#ops.model.Container.send_signal) method to send a signal to one or more services. For example, to send `SIGHUP` to the hypothetical "nginx" and "redis" services:
 
 ```python
-class MyCharm(CharmBase):
-    ...
-
-    def _on_config_changed(self, event):
-        container = self.unit.get_container("main")
-        plan = container.get_plan()
-        if not plan.services:
-            layer = {"services": ...}
-            container.add_layer("layer", layer)
-            container.start("svc")
-        ...
+container.send_signal('SIGHUP', 'nginx', 'redis')
 ```
+
+This will raise an `APIError` if any of the services are not in the plan or are not currently running.
+
+ <a href="#heading--view-service-logs"><h3 id="heading--view-service-logs">View service logs</h3></a>
+
+Pebble stores service logs (stdout and stderr from services) in a ring buffer accessible via the `pebble logs` command. Each log line is prefixed with the timestamp and service name, using the format `2021-05-03T03:55:49.654Z [snappass] ...`. Pebble allocates a ring buffer of 100KB per service (not one ring to rule them all), and overwrites the oldest logs in the buffer when it fills up.
+
+When running under Juju, the Pebble server is started with the `--verbose` flag, which means it also writes these logs to Pebble's own stdout. That in turn is accessible via Kubernetes using the `kubectl logs` command. For example, to view the logs for the "redis" container, you could run:
+
+```
+microk8s kubectl logs -n snappass snappass-test-0 -c redis
+```
+
+In the command line above, "snappass" is the namespace (Juju model name), "snappass-test-0" is the pod, and "redis" the specific container defined by the charm configuration.
+
+
 
 <h2 id="heading--service-auto-restart">Service auto-restart</h2>
 
@@ -241,7 +309,7 @@ If there are no checks configured, Pebble returns HTTP 200 so the liveness and r
 
 Pebble's files API allows charm authors to read and write files on the workload container. You can write files ("push"), read files ("pull"), list files in a directory, make directories, and delete files or directories.
 
-<h3 id="heading--push">Push</h3>
+ <a href="#heading--push"><h3 id="heading--push">Push</h3></a>
 
 Probably the most useful operation is [`Container.push`](https://ops.readthedocs.io/en/latest/#ops.model.Container.push), which allows you to write a file to the workload, for example, a PostgreSQL configuration file. You can use `push` as follows (note that this code would be inside a charm event handler):
 
@@ -257,7 +325,7 @@ The `make_dirs=True` flag tells `push` to create the intermediate directories if
 
 There are many additional features, including the ability to send raw bytes (by providing a Python `bytes` object as the second argument) and write data from a file-like object. You can also specify permissions and the user and group for the file. See the [API documentation](https://ops.readthedocs.io/en/latest/#ops.model.Container.push) for details.
 
-<h3 id="heading--pull">Pull</h3>
+ <a href="#heading--pull"><h3 id="heading--pull">Pull</h3></a>
 
 To read a file from the workload, use [`Container.pull`](https://ops.readthedocs.io/en/latest/#ops.model.Container.pull), which returns a file-like object that you can `read()`.
 
@@ -275,7 +343,7 @@ container.start('postgresql')
 
 If you specify the keyword argument `encoding=None` on the `pull()` call, reads from the returned file-like object will return `bytes`. The default is `encoding='utf-8'`, which will decode the file's bytes from UTF-8 so that reads return a Python `str`.
 
-<h3 id="heading--list-files">List files</h3>
+ <a href="#heading--list-files"><h3 id="heading--list-files">List files</h3></a>
 
 To list the contents of a directory or return stat-like information about one or more files, use [`Container.list_files`](https://ops.readthedocs.io/en/latest/#ops.model.Container.list_files). It returns a list of [`pebble.FileInfo`](https://ops.readthedocs.io/en/latest/#ops.pebble.FileInfo) objects for each entry (file or directory) in the given path, optionally filtered by a glob pattern. For example:
 
@@ -290,7 +358,7 @@ if 'host.conf' not in names:
 
 If you want information about the directory itself (instead of its contents), call `list_files(path, itself=True)`.
 
-<h3 id="heading--create-directory">Create directory</h3>
+ <a href="#heading--create-directory"><h3 id="heading--create-directory">Create directory</h3></a>
 
 To create a directory, use [`Container.make_dir`](https://ops.readthedocs.io/en/latest/#ops.model.Container.make_dir). It takes an optional `make_parents=True` argument (like `mkdir -p`), as well as optional permissions and user/group arguments. Some examples:
 
@@ -299,7 +367,7 @@ container.make_dir('/etc/pg', user='postgres', group='postgres')
 container.make_dir('/some/other/nested/dir', make_parents=True)
 ```
 
-<h3 id="heading--remove-path">Remove path</h3>
+ <a href="#heading--remove-path"><h3 id="heading--remove-path">Remove path</h3></a>
 
 To delete a file or directory, use [`Container.remove_path`](https://ops.readthedocs.io/en/latest/#ops.model.Container.remove_path). If a directory is specified, it must be empty unless `recursive=True` is specified, in which case the entire directory tree is deleted, recursively (like `rm -r`). For example:
 
@@ -310,7 +378,7 @@ container.remove_path('/var/log/apache/access.log')
 container.remove_path('/tmp/mysubdir', recursive=True)
 ```
 
-<h2 id="heading--exec">Running commands (exec)</h2>
+ <a href="#heading--run-commands"><h2 id="heading--run-commands">Run commands</h2></a>
 
 From Juju 2.9.17, Pebble includes an API for executing arbitrary commands on the workload container: the [`Container.exec`](https://ops.readthedocs.io/en/latest/#ops.model.Container.exec) method. It supports sending stdin to the process and receiving stdout and stderr, as well as more advanced options.
 
@@ -328,7 +396,7 @@ if warnings:
 ```
 
 
-<h3 id="heading--exec-error-handling">Error handling</h3>
+ <a href="#heading--handle-errors"><h3 id="heading--handle-errors">Handle errors</h3></a>
 
 The `exec` method raises a [`pebble.APIError`](https://ops.readthedocs.io/en/latest/#ops.pebble.APIError) if basic checks fail and the command can't be executed at all, for example, if the executable is not found.
 
@@ -358,7 +426,7 @@ Exited with code 1. Stderr:
 ```
 
 
-<h3 id="heading--exec-command-options">Command options</h3>
+ <a href="#heading--use-command-options"><h3 id="heading--use-command-options">Use command options</h3></a>
 
 The `Container.exec` method has various options (see [full API documentation](https://ops.readthedocs.io/en/latest/#ops.pebble.Client.exec)), including:
 
@@ -385,7 +453,8 @@ logger.info('Output: %r', stdout)
 This will execute the echo command in a shell and log something like `Output: 'HOME=/home/bob, PWD=/tmp, FOO=bar\n'`.
 
 
-<h3 id="heading--exec-io-options">Input/output options</h3>
+ <a href="#heading--use-inputoutput-options"><h3 id="heading--use-inputoutput-options">Use input/output options</h3></a>
+
 
 The simplest way of receiving standard output and standard error is by using the [`ExecProcess.wait_output`](https://ops.readthedocs.io/en/latest/#ops.pebble.ExecProcess.wait_output) method as shown above. The simplest way of sending standard input to the program is as a string, using the `stdin` parameter to `exec`. For example:
 
@@ -459,7 +528,7 @@ Output: 'THREE\n'
 Caution: it's easy to get threading wrong and cause deadlocks, so it's best to use `wait_output` or pass file-like objects to `exec` instead if possible.
 
 
-<h3 id="heading--exec-send-signal">Sending signals to a running command</h3>
+ <a href="#heading--send-signals-to-a-running-command"><h3 id="heading--send-signals-to-a-running-command">Send signals to a running command</h3></a>
 
 To send a signal to the running process, use [`ExecProcess.send_signal`](https://ops.readthedocs.io/en/latest/#ops.pebble.ExecProcess.send_signal) with a signal number or name. For example, the following will terminate the "sleep 10" process after one second:
 
@@ -478,10 +547,10 @@ Traceback (most recent call last):
 ops.pebble.ExecError: non-zero exit code 143 executing ['sleep', '10']
 ```
 
+ <a href="#heading--access-the-pebble-client-directly"><h2 id="heading--access-the-pebble-client-directly">Access the Pebble client directly</h2></a>
 
-<h2 id="heading--pebble-client">Accessing the Pebble client directly</h2>
 
-Occassionally charm code may want to access the lower-level Pebble API directly: the [`Container.pebble`](https://ops.readthedocs.io/en/latest/#ops.model.Container.pebble) property returns the [`pebble.Client`](https://ops.readthedocs.io/en/latest/#ops.pebble.Client) instance for the given container.
+Occasionally charm code may want to access the lower-level Pebble API directly: the [`Container.pebble`](https://ops.readthedocs.io/en/latest/#ops.model.Container.pebble) property returns the [`pebble.Client`](https://ops.readthedocs.io/en/latest/#ops.pebble.Client) instance for the given container.
 
 Below is a (contrived) example of an action that uses the Pebble client directly to call [`pebble.Client.get_changes`](https://ops.readthedocs.io/en/latest/#ops.pebble.Client.get_changes):
 
