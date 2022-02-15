@@ -305,7 +305,7 @@ When Juju creates a sidecar charm container, it initializes the Kubernetes liven
 If there are no checks configured, Pebble returns HTTP 200 so the liveness and readiness probes are successful by default. To use this feature, you must explicitly create checks with `level: alive` or `level: ready` in the layer configuration.
 
 
-<h2 id="heading--files-api">The Files API</h2>
+ <a href="#heading--the-files-api"><h2 id="heading--the-files-api">The files API</h2></a>
 
 Pebble's files API allows charm authors to read and write files on the workload container. You can write files ("push"), read files ("pull"), list files in a directory, make directories, and delete files or directories.
 
