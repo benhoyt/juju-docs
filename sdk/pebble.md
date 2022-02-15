@@ -234,8 +234,6 @@ The `backoff-factor` must be greater than or equal to 1.0. If the factor is set 
 
 Just before delaying, a small random time jitter of 0-10% of the delay is added (the current delay is not updated). For example, if the current delay value is 2 seconds, the actual delay will be between 2.0 and 2.2 seconds.
 
-A charm can find the total number of times Pebble has restarted a service using the `restarts` field in the [`ServiceInfo`](https://ops.readthedocs.io/en/latest/#ops.pebble.ServiceInfo) object returned by the [`Container.get_service`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_service) method.
-
 
 <h2 id="heading--health-checks">Health checks</h2>
 
