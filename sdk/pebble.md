@@ -242,7 +242,7 @@ Just before delaying, a small random time jitter of 0-10% of the delay is added 
 
 <a href="#heading--health-checks"><h2 id="heading--health-checks">Health checks</h2></a>
 
-From Juju version TODO:TBD, Pebble supports adding custom health checks: first, to allow Pebble itself to restart services when certain checks fail, and second, to allow Kubernetes to restart containers when specified checks fail.
+From Juju version 2.9.26, Pebble supports adding custom health checks: first, to allow Pebble itself to restart services when certain checks fail, and second, to allow Kubernetes to restart containers when specified checks fail.
 
 Each check can be one of three types. The types and their success criteria are:
 
@@ -297,7 +297,7 @@ services:
 
 <a href="#heading--health-endpoint-and-probes"><h3 id="heading--health-endpoint-and-probes">Health endpoint and probes</h3></a>
 
-As of Juju version TODO:TBD, Pebble includes an HTTP `/v1/health` endpoint that allows a user to query the health of configured checks, optionally filtered by check level with the query string `?level=<level>` This endpoint returns an HTTP 200 status if the checks are healthy, HTTP 502 otherwise.
+As of Juju version 2.9.26, Pebble includes an HTTP `/v1/health` endpoint that allows a user to query the health of configured checks, optionally filtered by check level with the query string `?level=<level>` This endpoint returns an HTTP 200 status if the checks are healthy, HTTP 502 otherwise.
 
 Each check can specify a `level` of "alive" or "ready". These have semantic meaning: "alive" means the check or the service it's connected to is up and running; "ready" means it's properly accepting network traffic. These correspond to Kubernetes ["liveness" and "readiness" probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/).
 
