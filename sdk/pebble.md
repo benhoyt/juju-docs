@@ -1,4 +1,4 @@
-As mentioned in the [introduction](https://juju.is/docs/sdk), the recommended way to create charms for Kubernetes is using the sidecar pattern with the workload container running [Pebble](https://github.com/canonical/pebble).
+The recommended way to create charms for Kubernetes is using the sidecar pattern with the workload container running [Pebble](https://github.com/canonical/pebble).
 
 Pebble is a lightweight, API-driven process supervisor designed for use with charms. If you specify the `containers` field in a charm's `metadata.yaml`, Juju will deploy the charm code in a sidecar container, with Pebble running as the workload container's `ENTRYPOINT`.
 
@@ -23,8 +23,8 @@ The rest of this document provides details of how a charm interacts with the wor
 - [Service auto-restart](#heading--service-auto-restart)
 - [Health checks](#heading--health-checks)
     - [Check configuration](#heading--check-configuration)
-    - [Checks auto-restart](#heading--checks-auto-restart)
-    - [Health endpoint and probes](#heading--health-endpoint-and-probes)
+    - [Check auto-restart](#heading--check-auto-restart)
+    - [Check health endpoint and probes](#heading--check-health-endpoint-and-probes)
 - [The files API](#heading--the-files-api)
     - [Push](#heading--push)
     - [Pull](#heading--pull)
@@ -204,8 +204,7 @@ microk8s kubectl logs -n snappass snappass-test-0 -c redis
 In the command line above, "snappass" is the namespace (Juju model name), "snappass-test-0" is the pod, and "redis" the specific container defined by the charm configuration.
 
 
-
-<h2 id="heading--service-auto-restart">Service auto-restart</h2>
+<a href="#heading--service-auto-restart"><h2 id="heading--service-auto-restart">Service auto-restart</h2></a>
 
 From Juju version 2.9.22, Pebble automatically restarts services when they exit unexpectedly.
 
@@ -252,6 +251,7 @@ Each check can be one of three types. The types and their success criteria are:
 
 <a href="#heading--check-configuration"><h3 id="heading--check-configuration">Check configuration</h3></a>
 
+
 Checks are configured in the layer configuration using the top-level field `checks`. Here's an example showing the three different types of checks:
 
 ```yaml
@@ -283,7 +283,8 @@ A check is considered healthy until it's had `threshold` errors in a row (the de
 
 See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details about the fields and options for different types of checks.
 
-<a href="#heading--checks-auto-restart"><h3 id="heading--checks-auto-restart">Checks auto-restart</h3></a>
+<a href="#heading--check-auto-restart"><h3 id="heading--check-auto-restart">Check auto-restart</h3></a>
+
 
 To enable Pebble auto-restart behavior based on a check, use the `on-check-failure` map in the service configuration. For example, to restart the "server" service when the "test" check fails, use the following configuration:
 
@@ -295,7 +296,7 @@ services:
             test: restart   # can also be "shutdown" or "ignore" (the default)
 ```
 
-<a href="#heading--health-endpoint-and-probes"><h3 id="heading--health-endpoint-and-probes">Health endpoint and probes</h3></a>
+<a href="#heading--check-health-endpoint-and-probes"><h3 id="heading--check-health-endpoint-and-probes">Check health endpoint and probes</h3></a>
 
 As of Juju version 2.9.26, Pebble includes an HTTP `/v1/health` endpoint that allows a user to query the health of configured checks, optionally filtered by check level with the query string `?level=<level>` This endpoint returns an HTTP 200 status if the checks are healthy, HTTP 502 otherwise.
 
@@ -379,6 +380,22 @@ To delete a file or directory, use [`Container.remove_path`](https://ops.readthe
 container.remove_path('/var/log/apache/access.log')
 # Blow away /tmp/mysubdir and all files under it
 container.remove_path('/tmp/mysubdir', recursive=True)
+```
+
+ <a href="#heading--file-exists"><h3 id="#heading--file-exists">File and directory existence</h3></a>
+
+[note status="version"]1.4[/note]
+
+To check if a paths exists you can use [`Container.exists`](https://ops.readthedocs.io/en/latest/#ops.model.Container.exists) for directories or files and [`Container.isdir`](https://ops.readthedocs.io/en/latest/#ops.model.Container.isdir) for directories.  These functions are analogous to python's `os.path.isdir` and `os.path.exists` functions.  For example:
+
+```python
+# if /tmp/myfile exists
+container.exists('/tmp/myfile') # True
+container.isdir('/tmp/myfile') # False
+
+# if /tmp/mydir exists
+container.exists('/tmp/myfile') # True
+container.isdir('/tmp/myfile') # True
 ```
 
  <a href="#heading--run-commands"><h2 id="heading--run-commands">Run commands</h2></a>
