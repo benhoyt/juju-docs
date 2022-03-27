@@ -31,6 +31,7 @@ The rest of this document provides details of how a charm interacts with the wor
     - [List files](#heading--list-files)
     - [Create directory](#heading--create-directory)
     - [Remove path](#heading--remove-path)
+    - [File and directory existence](#heading--file-exists)
 - [Run commands](#heading--run-commands)
     - [Handle errors](#heading--handle-errors)
     - [Use command options](#heading--use-command-options)
