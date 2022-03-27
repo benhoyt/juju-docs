@@ -23,6 +23,7 @@ The rest of this document provides details of how a charm interacts with the wor
 - [Service auto-restart](#heading--service-auto-restart)
 - [Health checks](#heading--health-checks)
     - [Check configuration](#heading--check-configuration)
+    - [Fetch check status](#heading--fetch-check-status)
     - [Check auto-restart](#heading--check-auto-restart)
     - [Check health endpoint and probes](#heading--check-health-endpoint-and-probes)
 - [The files API](#heading--the-files-api)
@@ -283,6 +284,19 @@ Each check is performed with the specified `period` (the default is 10 seconds a
 A check is considered healthy until it's had `threshold` errors in a row (the default is 3). At that point, the `on-check-failure` action will be triggered, and the health endpoint will return an error response (both are discussed below). When the check succeeds again, the failure count is reset.
 
 See the [layer specification](https://github.com/canonical/pebble#layer-specification) for more details about the fields and options for different types of checks.
+
+ <a href="#heading--fetch-check-status"><h3 id="heading--fetch-check-status">Fetch check status</h3></a>
+
+You can use the [`get_check`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_check) and [`get_checks`](https://ops.readthedocs.io/en/latest/#ops.model.Container.get_checks) methods to fetch the current status of one check or multiple checks, respectively. The returned [`CheckInfo`](https://ops.readthedocs.io/en/latest/#ops.pebble.CheckInfo) objects provide various attributes, most importantly a `status` attribute which will be either `UP` or `DOWN`.
+
+Here is a code example that checks whether the `uptime` check is healthy, and writes an error log if not:
+
+```python
+container = self.unit.get_container('main')
+check = container.get_check('uptime')
+if check.status != ops.pebble.CheckStatus.UP:
+    logger.error('Uh oh, uptime check unhealthy: %s', check)
+```
 
 <a href="#heading--check-auto-restart"><h3 id="heading--check-auto-restart">Check auto-restart</h3></a>
 
