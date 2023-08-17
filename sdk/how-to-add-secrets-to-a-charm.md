@@ -79,7 +79,7 @@ class MyDatabaseCharm(ops.CharmBase):
 
 Note that:
 - We call `add_secret` on `self.app` (the application). That is because we want the secret to be owned by this application, not by this unit. If we wanted to create a secret owned by the unit, we'd call `self.unit.add_secret` instead.
-- The only data shared in plain text is the secret ID (the "secret ID" is actually a locator URI, not a unique identifier). The secret ID can be publicly shared. Juju will ensure that only remote apps/units to which the secret has explicitly been granted by the owner will be able to fetch the actual secret payload from that ID.
+- The only data shared in plain text is the secret ID (a locator URI). The secret ID can be publicly shared. Juju will ensure that only remote apps/units to which the secret has explicitly been granted by the owner will be able to fetch the actual secret payload from that ID.
 - The secret needs to be granted to a remote entity (app or unit), and that always goes via a relation instance. By passing a relation to `grant` (in this case the event's relation), we are explicitly declaring the scope of the secret -- its lifetime will be bound to that of this relation instance.
 
 
@@ -154,7 +154,7 @@ This will inform Juju that a new revision is available, and Juju will inform all
 <a href="#heading--observer-update-to-a-new-revision"><h3 id="heading--observer-update-to-a-new-revision">
 Observer: Update to a new revision</h3></a>
 
-To update to a new revision, the web server charm will typically subscribe to the `secret-changed` event and call `get_content` with the "refresh" argument set (refresh tells Juju to track that this observer has updated to the new revision):
+To update to a new revision, the web server charm will typically subscribe to the `secret-changed` event and call `get_content` with the "refresh" argument set (refresh asks Juju to start tracking the latest revision for this observer).
 
 ```python
 class MyWebserverCharm(ops.CharmBase):
@@ -211,7 +211,7 @@ class MyWebserverCharm(ops.CharmBase):
             pass  # ignore other labels (or log a warning)
 ```
 
-As shown above, when the web server charm calls `get_secret` it can specify an observer-specific label for that secret; Juju will attach this label to the secret at that point.
+As shown above, when the web server charm calls `get_secret` it can specify an observer-specific label for that secret; Juju will attach this label to the secret at that point. Normally `get_secret` is called for the first time in a relation-changed event; the label is applied then, and subsequently used in a secret-changed event.
 
 Labels are unique to the charm (the observer in this case): if you attempt to attach a label to two different secrets from the same application (whether it's the on the observer side or the owner side) and give them the same label, the framework will raise a `ModelError`.
 
@@ -246,9 +246,9 @@ So, having labelled the secret on creation, the database charm could add a new r
 
 <a href="#heading--when-to-use-labels"><h4 id="heading--when-to-use-labels">When to use labels</h4></a>
 
-When should you use labels? A label is basically the secret's *name* (local to the charm), so whenever a charm has or is observing multiple secrets you should label them. This allows you to distinguish between secrets, for example, in the `SecretChangedEvent` shown above.
+When should you use labels? A label is basically the secret's *name* (local to the charm), so whenever a charm has, or is observing, multiple secrets you should label them. This allows you to distinguish between secrets, for example, in the `SecretChangedEvent` shown above.
 
-Most charms that use secrets have a fixed number of secrets each with a specific meaning, so the charm author should give them meaningful labels like `database-credentials`, `tls-cert`, and so on. Think of these as "pets" with names.
+Most charms that use secrets have a fixed number of secrets each with a specific meaning, so the charm author should give them meaningful labels like `database-credential`, `tls-cert`, and so on. Think of these as "pets" with names.
 
 In rare cases, however, a charm will have a set of secrets all with the same meaning: for example, a set of TLS certificates that are all equally valid. In this case it doesn't make sense to label them -- think of them as "cattle". To distinguish between secrets of this kind, you can use the [`Secret.unique_identifier`](https://ops.readthedocs.io/en/latest/#ops.Secret.unique_identifier) property, added in ops 2.6.0.
 
