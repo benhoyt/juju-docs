@@ -835,7 +835,7 @@ ops.pebble.ExecError: non-zero exit code 143 executing ['sleep', '10']
 
 <a href="#heading--use-custom-notices-from-the-workload-container"><h2 id="heading--use-custom-notices-from-the-workload-container">Use custom notices from the workload container</h2></a>
 
-From version 3.4, Juju includes support for [Pebble Notices](https://github.com/canonical/pebble/#notices). Juju polls each container's Pebble server for new notices, and fires an event to the charm when a notice first occurs and each time it repeats.
+From version 3.4, Juju includes support for [Pebble Notices](https://github.com/canonical/pebble/#notices). Juju polls each workload container's Pebble server for new notices, and fires an event to the charm when a notice first occurs as well as each time it repeats.
 
 Each notice has a *type* and *key*, the combination of which uniquely identifies it. A notice's count of occurrences is incremented every time a notice with that type and key combination occurs.
 
@@ -853,20 +853,20 @@ pg_dump mydb >/tmp/mydb.sql
 pebble notify canonical.com/postgresql/backup-done path=/tmp/mydb.sql
 ```
 
-The first argument to `pebble notify` is the key, which must be in the format `<domain>/<path>`. The caller can optionally provide a map data arguments in `<name>=<value>` format; this example shows a single data argument named `path`.
+The first argument to `pebble notify` is the key, which must be in the format `<domain>/<path>`. The caller can optionally provide map data arguments in `<name>=<value>` format; this example shows a single data argument named `path`.
 
 The `pebble notify` command has an optional `--repeat-after` flag, which tells Pebble to only allow the notice to repeat after the specified duration (the default is to repeat for every occurrence). If the caller says `--repeat-after=1h`, Pebble will prevent the notice with the same type and key from repeating within an hour -- useful to avoid the charm waking up too often when a notice occcurs frequently.
 
 
 <a href="#heading--responding-to-a-notice"><h3 id="heading--responding-to-a-notice">Responding to a notice</h3></a>
 
-To have the charm respond to a notice occurring, observe the `pebble-custom-notice` event and switch on the notice's `key`:
+To have the charm respond to a notice, observe the `pebble_custom_notice` event and switch on the notice's `key`:
 
 ```python
 class PostgresCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
-        # Note that 'db' is the workload container's name
+        # Note that "db" is the workload container's name
         self.framework.observe(self.on["db"].pebble_custom_notice, self._on_pebble_custom_notice)
 
     def _on_pebble_custom_notice(self, event: ops.PebbleCustomNoticeEvent) -> None:
@@ -893,7 +893,7 @@ A charm can also query for notices using the following two `Container` methods:
 
 <a href="#heading--testing-with-notices"><h3 id="testing-with-notices">Testing with notices</h3></a>
 
-To test charms that use Pebble Notices, use the [`Harness.pebble_notify`](https://ops.readthedocs.io/en/latest/#ops.testing.Harness.pebble_notify) method to simulate recording a notice with the given details. For example, to simulate the "backup-done" notice handled above, the charm tests might do the following:
+To test charms that use Pebble Notices, use the [`Harness.pebble_notify`](https://ops.readthedocs.io/en/latest/#ops.testing.Harness.pebble_notify) method to simulate recording a notice with the given details. For example, to simulate the "backup-done" notice handled above, the charm tests could do the following:
 
 ```python
 class TestCharm(unittest.TestCase):
