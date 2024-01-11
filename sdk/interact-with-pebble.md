@@ -17,6 +17,7 @@ The rest of this document provides details of how a charm interacts with the wor
 - [Perform health checks on the workload container](#heading--perform-health-checks-on-the-workload-container)
 - [Manage files in the workload container](#heading--manage-files-in-the-workload-container)
 - [Run commands on the workload container](#heading--run-commands-on-the-workload-container)
+- [Use custom notices from the workload container](#heading--use-custom-notices-from-the-workload-container)
 
 
 [note type=information status="If you ever wish to access the Pebble client directly"]
@@ -830,6 +831,96 @@ Traceback (most recent call last):
   ..
 ops.pebble.ExecError: non-zero exit code 143 executing ['sleep', '10']
 ```
+
+
+<a href="#heading--use-custom-notices-from-the-workload-container"><h2 id="heading--use-custom-notices-from-the-workload-container">Use custom notices from the workload container</h2></a>
+
+From version 3.4, Juju includes support for [Pebble Notices](https://github.com/canonical/pebble/#notices). Juju polls each container's Pebble server for new notices, and fires an event to the charm when a notice first occurs and each time it repeats.
+
+Each notice has a *type* and *key*, the combination of which uniquely identifies it. A notice's count of occurrences is incremented every time a notice with that type and key combination occurs.
+
+
+<a href="#heading--custom-notices"><h3 id="heading--custom-notices">Custom notices</h3></a>
+
+Currently, the only supported notice type is "custom". These are custom notices recorded by a user of Pebble; in future, other notice types may be recorded by Pebble itself. When a custom notice occurs, Juju fires a [`PebbleCustomNoticeEvent`](https://ops.readthedocs.io/en/latest/#ops.PebbleCustomNoticeEvent) event whose [`workload`](https://ops.readthedocs.io/en/latest/#ops.WorkloadEvent.workload) attribute is set to the relevant container.
+
+Custom notices allow the workload to wake up the charm when something interesting happens on the workload, for example, when a PostgreSQL backup process finishes, or some kind of alert occurs.
+
+To record a custom notice, use the `pebble notify` CLI command. For example, the workload might have a script to back up the database and then record a notice:
+
+```sh
+pg_dump mydb >/tmp/mydb.sql
+pebble notify canonical.com/postgresql/backup-done path=/tmp/mydb.sql
+```
+
+The first argument to `pebble notify` is the key, which must be in the format `<domain>/<path>`. The caller can optionally provide a map data arguments in `<name>=<value>` format; this example shows a single data argument named `path`.
+
+The `pebble notify` command has an optional `--repeat-after` flag, which tells Pebble to only allow the notice to repeat after the specified duration (the default is to repeat for every occurrence). If the caller says `--repeat-after=1h`, Pebble will prevent the notice with the same type and key from repeating within an hour -- useful to avoid the charm waking up too often when a notice occcurs frequently.
+
+
+<a href="#heading--responding-to-a-notice"><h3 id="heading--responding-to-a-notice">Responding to a notice</h3></a>
+
+To have the charm respond to a notice occurring, observe the `pebble-custom-notice` event and switch on the notice's `key`:
+
+```python
+class PostgresCharm(ops.CharmBase):
+    def __init__(self, *args):
+        super().__init__(*args)
+        # Note that 'db' is the workload container's name
+        self.framework.observe(self.on["db"].pebble_custom_notice, self._on_pebble_custom_notice)
+
+    def _on_pebble_custom_notice(self, event: ops.PebbleCustomNoticeEvent) -> None:
+        if event.notice.key == "canonical.com/postgresql/backup-done":
+            path = event.notice.last_data["path"]
+            logger.info("Backup finished, copying %s to the cloud", path)
+            f = event.workload.pull(path, encoding=None)
+            s3_bucket.upload_fileobj(f, "db-backup.sql")
+
+        elif event.notice.key == "canonical.com/postgresql/other-thing":
+            logger.info("Handling other thing")
+```
+
+All notice events have a [`notice`](https://ops.readthedocs.io/en/latest/#ops.PebbleNoticeEvent.notice) property with the details of the notice recorded. That is used in the example above to switch on the notice `key` and look at its `last_data` (to determine the backup's path).
+
+
+<a href="#heading--fetching-notices"><h3 id="heading--fetching-notices">Fetching notices</h3></a>
+
+A charm can also query for notices using the following two `Container` methods:
+
+* [`get_notice`](https://ops.readthedocs.io/en/latest/#ops.Container.get_notice), which gets a single notice by unique ID (the value of `notice.id`).
+* [`get_notices`](https://ops.readthedocs.io/en/latest/#ops.Container.get_notices), which returns all notices by default, and allows filtering notices by specific attributes such as `key`.
+
+
+<a href="#heading--testing-with-notices"><h3 id="testing-with-notices">Testing with notices</h3></a>
+
+To test charms that use Pebble Notices, use the [`Harness.pebble_notify`](https://ops.readthedocs.io/en/latest/#ops.testing.Harness.pebble_notify) method to simulate recording a notice with the given details. For example, to simulate the "backup-done" notice handled above, the charm tests might do the following:
+
+```python
+class TestCharm(unittest.TestCase):
+    @patch("charm.s3_bucket.upload_fileobj")
+    def test_backup_done(self, upload_fileobj):
+        harness = ops.testing.Harness(PostgresCharm)
+        self.addCleanup(harness.cleanup)
+        harness.begin()
+        harness.set_can_connect("db", True)
+
+        # Pretend backup file has been written
+        root = harness.get_filesystem_root("db")
+        (root / "tmp").mkdir()
+        (root / "tmp" / "mydb.sql").write_text("BACKUP")
+
+        # Notify to record the notice and fire the event
+        harness.pebble_notify(
+            "db", "canonical.com/postgresql/backup-done", data={"path": "/tmp/mydb.sql"}
+        )
+
+        # Ensure backup content was "uploaded" to S3
+        upload_fileobj.assert_called_once()
+        upload_f, upload_key = upload_fileobj.call_args.args
+        self.assertEqual(upload_f.read(), b"BACKUP")
+        self.assertEqual(upload_key, "db-backup.sql")
+```
+
 
 <!--
  <a href="#heading--access-the-pebble-client-directly"><h2 id="heading--access-the-pebble-client-directly">Access the Pebble client directly</h2></a>
