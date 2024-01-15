@@ -844,7 +844,7 @@ Each notice has a *type* and *key*, the combination of which uniquely identifies
 
 Currently, the only supported notice type is "custom". These are custom notices recorded by a user of Pebble; in future, other notice types may be recorded by Pebble itself. When a custom notice occurs, Juju fires a [`PebbleCustomNoticeEvent`](https://ops.readthedocs.io/en/latest/#ops.PebbleCustomNoticeEvent) event whose [`workload`](https://ops.readthedocs.io/en/latest/#ops.WorkloadEvent.workload) attribute is set to the relevant container.
 
-Custom notices allow the workload to wake up the charm when something interesting happens on the workload, for example, when a PostgreSQL backup process finishes, or some kind of alert occurs.
+Custom notices allow the workload to wake up the charm when something interesting happens with the workload, for example, when a PostgreSQL backup process finishes, or some kind of alert occurs.
 
 To record a custom notice, use the `pebble notify` CLI command. For example, the workload might have a script to back up the database and then record a notice:
 
@@ -864,10 +864,10 @@ To have the charm respond to a notice, observe the `pebble_custom_notice` event 
 
 ```python
 class PostgresCharm(ops.CharmBase):
-    def __init__(self, *args):
-        super().__init__(*args)
+    def __init__(self, framework: ops.Framework):
+        super().__init__(framework)
         # Note that "db" is the workload container's name
-        self.framework.observe(self.on["db"].pebble_custom_notice, self._on_pebble_custom_notice)
+        framework.observe(self.on["db"].pebble_custom_notice, self._on_pebble_custom_notice)
 
     def _on_pebble_custom_notice(self, event: ops.PebbleCustomNoticeEvent) -> None:
         if event.notice.key == "canonical.com/postgresql/backup-done":
