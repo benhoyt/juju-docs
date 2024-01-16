@@ -850,7 +850,7 @@ To record a custom notice, use the `pebble notify` CLI command. For example, the
 
 ```sh
 pg_dump mydb >/tmp/mydb.sql
-pebble notify canonical.com/postgresql/backup-done path=/tmp/mydb.sql
+/charm/bin/pebble notify canonical.com/postgresql/backup-done path=/tmp/mydb.sql
 ```
 
 The first argument to `pebble notify` is the key, which must be in the format `<domain>/<path>`. The caller can optionally provide map data arguments in `<name>=<value>` format; this example shows a single data argument named `path`.
